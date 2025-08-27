@@ -72,16 +72,16 @@ EGraph read_egraph(FILE* ppin) {
 	return g;
 }
 
-void print_egraph(EGraph &g) {
+void print_egraph(const EGraph &g) {
 	int n = g.eclasses.size();
 	printf("%d\n", n);
 	for (int i = 0; i < n; ++i) {
-		EClass &c = g.eclasses[i];
+		const EClass &c = g.eclasses[i];
 		int f = c.isEffectful ? 1 : 0,
 			m = c.enodes.size();
 		printf("%d %d\n", f, m);
 		for (int j = 0; j < m; ++j) {
-			ENode &n = c.enodes[j];
+			const ENode &n = c.enodes[j];
 			int l = n.ch.size();
 			printf("%s\n%d%c", n.head.c_str(), l, l == 0 ? '\n' : ' ');
 			for (int k = 0; k < l; ++k) {
@@ -135,87 +135,6 @@ bool validExtraction(const EGraph &g, const EClassId root, const Extraction &e) 
 	// reachability does not really matter
 	// unique choice not required 
 	return true;
-}
-
-bool checkLinearRegionRec(const EGraph &g, const EClassId root, const EClassId origin, const Extraction &e) {
-	cout << "Checking region linearity: " << root << ' ' << origin << endl;
-	// Find statewalk and subregions
-	vector<ExtractionENodeId> statewalk;
-	vector<pair<ExtractionENodeId, ExtractionENodeId> > subregions;
-	vector<bool> vis(e.size(), false);
-	vector<bool> onpath(e.size(), false);
-	queue<ExtractionENodeId> q;
-	statewalk.push_back(root);
-	onpath[root] = true;
-	for (int i = 0; statewalk[i] != origin; ++i) {
-		int u = statewalk[i];
-		int nxt = -1;
-		for (int j = 0; j < (int)e[u].ch.size(); ++j) {
-			if (g.eclasses[e[e[u].ch[j]].c].isEffectful) {
-				if (nxt == -1) {
-					nxt = e[u].ch[j];
-					statewalk.push_back(nxt);
-					onpath[nxt] = true;
-				} else {
-					subregions.push_back(make_pair(e[u].ch[j], nxt));
-				}
-			} else {
-				if (!vis[e[u].ch[j]]) {
-					vis[e[u].ch[j]] = true;
-					q.push(e[u].ch[j]);
-				}
-			}
-		}
-	}
-	// Check pure enodes only depend on the effectful walk in this region
-	while (q.size()) {
-		int u = q.front();
-		q.pop();
-		for (int i = 0; i < (int)e[u].ch.size(); ++i) {
-			int v = e[u].ch[i];
-			// assuming pure enodes can only have one effectful child
-			if (g.eclasses[e[v].c].isEffectful) {
-				if (!onpath[v]) {
-					// using a effectul enode not in this region
-					return false;
-				}
-			} else {
-				if (!vis[v]) {
-					vis[v] = true;
-					q.push(v);
-				}
-			}
-		}
-	}
-	// Check all the subregions
-	for (int i = 0; i < (int)subregions.size(); ++i) {
-		if (!checkLinearRegionRec(g, subregions[i].first, subregions[i].second, e)) {
-			return false;
-		}
-	}
-	return true;
-}
-
-bool linearExtraction(const EGraph &g, const EClassId root, const Extraction &e) {
-	if (!validExtraction(g, root, e)) {
-		return false;
-	}
-	assert(g.eclasses[root].isEffectful);
-	int cur = -1, nxt = e.size() - 1;
-	while (nxt != -1) {
-		cur = nxt;
-		nxt = -1;
-		for (int i = 0; i < (int)e[cur].ch.size(); ++i) {
-			if (g.eclasses[e[e[cur].ch[i]].c].isEffectful) {
-				if (nxt == -1) {
-					//nonsubregion children
-					nxt = e[cur].ch[i];
-					break;
-				}
-			}
-		}
-	}
-	return checkLinearRegionRec(g, root, cur, e);
 }
 
 void print_extraction(const EGraph &g, const Extraction &e) {
@@ -315,8 +234,139 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 	return make_pair(true, e);
 }
 
+struct SubEGraphMap {
+	vector<EClassId> eclassmp;
+	map<EClassId, EClassId> inv;
+	vector<vector<int>> nsubregion;
+};
+
+pair<EGraph, SubEGraphMap> createRegionEGraph(const EGraph &g, const EClassId region_root) {
+	SubEGraphMap mp;
+	queue<EClassId> q;
+	q.push(region_root);
+	mp.inv[region_root] = 0;
+	mp.eclassmp.push_back(region_root);
+	mp.nsubregion.push_back(vector<int>(g.eclasses[region_root].enodes.size(), 0));
+	while (q.size() > 0) {
+		EClassId u = q.front();
+		q.pop();
+		assert(mp.nsubregion[mp.inv[u]].size() == g.eclasses[u].enodes.size());
+		for (int i = 0; i < (int)g.eclasses[u].enodes.size(); ++i) {
+			bool subregionchild = false;
+			for (int j = 0; j < (int)g.eclasses[u].enodes[i].ch.size(); ++j) {
+				EClassId v = g.eclasses[u].enodes[i].ch[j];
+				if (g.eclasses[v].isEffectful) {
+					if (subregionchild) {
+						mp.nsubregion[mp.inv[u]][i]++;
+						continue;
+					}
+					subregionchild = true;
+				}
+				if (!mp.inv.count(v)) {
+					mp.inv[v] = mp.eclassmp.size();
+					mp.eclassmp.push_back(v);
+					mp.nsubregion.push_back(vector<int>(g.eclasses[v].enodes.size(), 0));
+					q.push(v);
+				}
+			}
+		}
+	}
+	EGraph gr;
+	for (int i = 0; i < (int)mp.eclassmp.size(); ++i) {
+		EClass c;
+		c.isEffectful = g.eclasses[mp.eclassmp[i]].isEffectful;
+		c.enodes.resize(g.eclasses[mp.eclassmp[i]].enodes.size());
+		for (int j = 0; j < (int)g.eclasses[mp.eclassmp[i]].enodes.size(); ++j) {
+			bool subregionchild = false;
+			c.enodes[j].eclass = i;
+			c.enodes[j].head = g.eclasses[mp.eclassmp[i]].enodes[j].head;
+			for (int k = 0; k < (int)g.eclasses[mp.eclassmp[i]].enodes[j].ch.size(); ++k) {
+				EClassId cp = g.eclasses[mp.eclassmp[i]].enodes[j].ch[k];
+				if (g.eclasses[cp].isEffectful) {
+					if (subregionchild) {
+						continue;
+					}
+					subregionchild = true;
+				}
+				c.enodes[j].ch.push_back(mp.inv[cp]);
+			}
+		}
+		gr.eclasses.push_back(c);
+	}
+	return make_pair(gr, mp);
+}
+
+bool checkLinearRegionRec(const EGraph &g, const EClassId root, const Extraction &e) {
+	// cout << "Checking region linearity: " << root << endl;
+	// Find statewalk and subregions
+	vector<ExtractionENodeId> statewalk;
+	vector<ExtractionENodeId> subregions;
+	vector<bool> vis(e.size(), false);
+	vector<bool> onpath(e.size(), false);
+	queue<ExtractionENodeId> q;
+	statewalk.push_back(root);
+	onpath[root] = true;
+	for (int i = 0; i < (int)statewalk.size(); ++i) {
+		int u = statewalk[i];
+		int nxt = -1;
+		for (int j = 0; j < (int)e[u].ch.size(); ++j) {
+			if (g.eclasses[e[e[u].ch[j]].c].isEffectful) {
+				if (nxt == -1) {
+					nxt = e[u].ch[j];
+					statewalk.push_back(nxt);
+					onpath[nxt] = true;
+				} else {
+					subregions.push_back(e[u].ch[j]);
+				}
+			} else {
+				if (!vis[e[u].ch[j]]) {
+					vis[e[u].ch[j]] = true;
+					q.push(e[u].ch[j]);
+				}
+			}
+		}
+	}
+	// Check pure enodes only depend on the effectful walk in this region
+	while (q.size()) {
+		int u = q.front();
+		q.pop();
+		for (int i = 0; i < (int)e[u].ch.size(); ++i) {
+			int v = e[u].ch[i];
+			// assuming pure enodes can only have one effectful child
+			if (g.eclasses[e[v].c].isEffectful) {
+				if (!onpath[v]) {
+					// using a effectul enode not in this region
+					return false;
+				}
+			} else {
+				if (!vis[v]) {
+					vis[v] = true;
+					q.push(v);
+				}
+			}
+		}
+	}
+	// Check all the subregions
+	for (int i = 0; i < (int)subregions.size(); ++i) {
+		if (!checkLinearRegionRec(g, subregions[i], e)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool linearExtraction(const EGraph &g, const EClassId root, const Extraction &e) {
+	if (!validExtraction(g, root, e)) {
+		return false;
+	}
+	assert(g.eclasses[root].isEffectful);
+	return checkLinearRegionRec(g, root, e);
+}
+
+
 typedef vector<pair<EClassId, ENodeId>> StateWalk;
 
+/*
 StateWalk getStateWalk(const EGraph &g, const EClassId root, const Extraction &e) {
 	assert(validExtraction(g, root, e));
 	assert(g.eclasses[root].isEffectful);
@@ -335,8 +385,9 @@ StateWalk getStateWalk(const EGraph &g, const EClassId root, const Extraction &e
 	}
 	return sw;
 }
+*/
 
-pair<bool, Extraction> ExtractionWithStateWalk(const EGraph &g, const EClassId root, const StateWalk &sw) {
+pair<bool, Extraction> regionExtractionWithStateWalk(const EGraph &g, const EClassId root, const StateWalk &sw) {
 	EGraph gp = g;
 	// 1. remove all enodes in effectful eclasses
 	for (int i = 0; i < (int)gp.eclasses.size(); ++i) {
@@ -360,18 +411,21 @@ pair<bool, Extraction> ExtractionWithStateWalk(const EGraph &g, const EClassId r
 			ec.enodes.push_back(g.eclasses[cg].enodes[ng]);
 			gp.eclasses.push_back(ec);
 		}
+		bool subregionchild = false;
 		for (int j = 0; j < (int)gp.eclasses[cgp].enodes[0].ch.size(); ++j) {
 			EClassId chc = gp.eclasses[cgp].enodes[0].ch[j];
 			if (g.eclasses[chc].isEffectful) {
+				assert(!subregionchild); // at most one effectful child in a region egraph
 				gp.eclasses[cgp].enodes[0].ch[j] = last;
+				subregionchild = true;
 			}
 		}
 		ecmap[cgp] = i;
 		last = cgp;
 	}
 	// 3. is automatically handled by keeping the edges of the pure enodes
-	printf("Reconstructed egraph gprime:\n");
-	print_egraph(gp);
+	// printf("Reconstructed egraph gprime:\n");
+	// print_egraph(gp);
 	pair<bool, Extraction> result = NormalGreedyExtraction(gp, root);
 	if (result.first == false) {
 		return result;
@@ -450,6 +504,100 @@ ExtractableSet saturate_pure(const EGraph &g, const ExtractableSet &es) {
 		}
 	}
 	return ret;
+}
+
+typedef pair<EClassId, ExtractableSet> ExVertex;
+typedef int ExVertexId;
+
+StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENodeId initn, const EClassId root, const vector<vector<int>> &nsubregion) {
+	// print_egraph(g);
+	// cout << initc << ' ' << initn << ' ' << root << endl;
+	vector<vector<pair<EClassId, ENodeId>>> edges(g.eclasses.size());
+	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
+		if (g.eclasses[i].isEffectful) {
+			for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
+				for (int k = 0; k < (int)g.eclasses[i].enodes[j].ch.size(); ++k) {
+					if (g.eclasses[g.eclasses[i].enodes[j].ch[k]].isEffectful) {
+						edges[g.eclasses[i].enodes[j].ch[k]].push_back(make_pair(i, j));
+					}
+				}
+			}
+		}
+	}
+	vector<ExVertex> vs;
+	map<ExVertex, ExVertexId> vsmap;
+	vector<pair<Cost, Cost> > dis;
+	vector<pair<ENodeId, ExVertexId> > pa;
+
+	ExtractableSet inites(g.eclasses.size(), false);
+	inites[initc] = true;
+	inites = saturate_pure(g, inites);
+	ExVertex initv = make_pair(initc, inites);
+	vsmap[initv] = vs.size();
+	vs.push_back(initv);
+	dis.push_back(make_pair(0, 1));
+	pa.push_back(make_pair(initn, -1));
+
+	priority_queue<pair<pair<Cost, Cost>, ExVertexId> > maxheap;
+	maxheap.push(make_pair(make_pair(-dis[0].first, -dis[0].second), 0));
+
+	ExVertexId goal = -1;
+	while (maxheap.size() > 0) {
+		pair<Cost, Cost> c = maxheap.top().first;
+		c.first = -c.first;
+		c.second = -c.second;
+		ExVertexId i = maxheap.top().second;
+		// cout << i << ' ' << c.first << ' ' << c.second << endl;
+		maxheap.pop();
+		if (dis[i] != c) {
+			continue;
+		}
+		if (goal != -1 && dis[i] == dis[goal]) {
+			break;
+		}
+		ExVertex u = vs[i];
+		ExtractableSet &ues = u.second;
+		for (int j = 0; j < (int)edges[u.first].size() && goal == -1; ++j) {
+			EClassId vc = edges[u.first][j].first;
+			ENodeId vn = edges[u.first][j].second;
+			if (isExtractable(g, ues, vc, vn)) {
+				ExtractableSet ves = ues;
+				if (!ues[vc]) {
+					ves[vc] = true;
+					ves = saturate_pure(g, ves);
+				}
+				ExVertex v = make_pair(vc, ves);
+				pair<Cost, Cost> nc = make_pair(c.first + nsubregion[vc][vn], c.second + 1);
+				int vid;
+				if (!vsmap.count(v)) {
+					vid = vs.size();
+					vsmap[v] = vid;
+					vs.push_back(v);
+					dis.push_back(nc);
+					pa.push_back(make_pair(vn, i));
+					maxheap.push(make_pair(make_pair(-dis[vid].first, -dis[vid].second), vid));
+				} else {
+					vid = vsmap[v];
+					if (dis[vid] > nc) {
+						dis[vid] = nc;
+						pa[vid] = make_pair(vn, i);
+						maxheap.push(make_pair(make_pair(-dis[vid].first, -dis[vid].second), vid));
+					}
+				}
+				if (vc == root && (goal == -1 || dis[vid] < dis[goal])) {
+					goal = vid;
+				}
+			}
+		}
+	}
+	assert(goal != -1);
+	ExVertexId cur = goal;
+	StateWalk sw;
+	while (cur != -1) {
+		sw.push_back(make_pair(vs[cur].first, pa[cur].first));
+		cur = pa[cur].second;
+	}
+	return sw;
 }
 
 typedef int Rank;
@@ -617,12 +765,122 @@ EClassId pick_next_variable_heuristics(const vector<EClassId> &v) {
 	}
 }
 
+typedef int RegionId;
+
+ExtractionENodeId reconstructExtraction(const EGraph &g, const vector<EClassId> &region_roots, const vector<RegionId> &region_root_id, vector<ExtractionENodeId> &extracted_roots, Extraction &e, const RegionId &cur_region) {
+	if (extracted_roots[cur_region] != -1) {
+		return extracted_roots[cur_region];
+	}
+	EClassId region_root = region_roots[cur_region];
+	// cout << "Region root : " << region_root << endl;
+	pair<EGraph, SubEGraphMap> res = createRegionEGraph(g, region_root);
+	EGraph &gr = res.first;
+	SubEGraphMap &rmap = res.second;
+	pair<EClassId, ENodeId> arg = findArg(gr);
+	EClassId argc = arg.first;
+	ENodeId argn = arg.second;
+	EClassId root = rmap.inv[region_root];
+	StateWalk sw = UnguidedFindStateWalk(gr, argc, argn, root, rmap.nsubregion);
+	Extraction er = regionExtractionWithStateWalk(gr, root, sw).second;
+	Extraction ner(er.size());
+	for (int i = 0; i < (int)er.size(); ++i) {
+		ExtractionENode &en = er[i], &nen = ner[i];
+		EClassId oric = rmap.eclassmp[en.c];
+		nen.c = oric;
+		ENodeId orin = en.n;
+		nen.n = orin;
+		bool subregionchild = false;
+		for (int j = 0, k = 0; j < (int)g.eclasses[oric].enodes[orin].ch.size(); ++j) {
+			EClassId orichc = g.eclasses[oric].enodes[orin].ch[j];
+			if (g.eclasses[orichc].isEffectful) {
+				if (subregionchild) {
+					nen.ch.push_back(reconstructExtraction(g, region_roots, region_root_id, extracted_roots, e, region_root_id[orichc]));
+				} else {
+					subregionchild = true;
+					nen.ch.push_back(en.ch[k++]);
+				}
+			} else {
+				nen.ch.push_back(en.ch[k++]);
+			}
+		}
+	}
+	int delta = e.size();
+	for (int i = 0; i < (int)ner.size(); ++i) {
+		bool subregionchild = false;
+		for (int j = 0; j < (int)g.eclasses[ner[i].c].enodes[ner[i].n].ch.size(); ++j) {
+			EClassId chc = g.eclasses[ner[i].c].enodes[ner[i].n].ch[j];
+			if (g.eclasses[chc].isEffectful) {
+				if (subregionchild) {
+					continue;
+				} else {
+					subregionchild = true;
+					ner[i].ch[j] += delta;
+				}
+			} else {
+				ner[i].ch[j] += delta;
+			}
+		}
+	}
+	e.insert(e.end(), ner.begin(), ner.end());
+	extracted_roots[cur_region] = e.size() - 1;
+	return extracted_roots[cur_region];
+}
+
 int main() {
 	FILE* ppin = preprocessing();
 	EGraph g = read_egraph(ppin);
-	EClassId root;
-	fscanf(ppin, "%d", &root);
+	EClassId program_root;
+	fscanf(ppin, "%d", &program_root);
 	print_egraph(g);
+	vector<RegionId> region_root_id(g.eclasses.size(), -1);
+	vector<EClassId> region_roots;
+	region_roots.push_back(program_root);
+	region_root_id[program_root] = 0;
+	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
+		if (g.eclasses[i].isEffectful) {
+			for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
+				bool subregionroot = false;
+				for (int k = 0; k < (int)g.eclasses[i].enodes[j].ch.size(); ++k) {
+					EClassId v = g.eclasses[i].enodes[j].ch[k];
+					if (g.eclasses[v].isEffectful) {
+						if (subregionroot) {
+							region_root_id[v] = region_roots.size();
+							region_roots.push_back(v);
+						} else {
+							subregionroot = true;
+						}
+					}
+				}
+			}
+		}
+	}
+	/*
+	vector<pair<EGraph, SubEGraphMap>> region_egraphs;
+	for (int i = 0; i < (int)region_roots.size(); ++i) {
+		int u = region_roots[i];
+		//cout << "Region root : " << u << endl;
+		region_egraphs.push_back(createRegionEGraph(g, u));
+		//print_egraph(region_egraphs.back().first);
+	}
+	vector<Extraction> region_extractions;
+	for (int i = 0; i < (int)region_egraphs.size(); ++i) {
+		cout << "Region root : " << region_roots[i] << endl;
+		EGraph &gr = region_egraphs[i].first;
+		pair<EClassId, ENodeId> arg = findArg(gr);
+		EClassId argc = arg.first;
+		ENodeId argn = arg.second;
+		EClassId root = region_egraphs[i].second.inv[region_roots[i]];
+		StateWalk sw = UnguidedFindStateWalk(gr, argc, argn, root);
+		region_extractions.push_back(regionExtractionWithStateWalk(gr, root, sw).second);
+		print_extraction(gr, region_extractions.back());
+	}
+	*/
+	vector<ExtractionENodeId> extracted_roots(region_roots.size(), -1);
+	Extraction e;
+	reconstructExtraction(g, region_roots, region_root_id, extracted_roots, e, region_root_id[program_root]);
+	print_extraction(g, e);
+	assert(linearExtraction(g, program_root, e));
+/*
 	Extraction e1 = NormalGreedyExtraction(g, root).second;
 	print_extraction(g, e1);
 	if (!linearExtraction(g, root, e1)) {
@@ -716,5 +974,6 @@ int main() {
 			}
 		}
 	}
+*/
 	return 0;
 }
