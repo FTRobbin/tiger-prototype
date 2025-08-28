@@ -18,9 +18,9 @@ void read_next_token() {
 	if (s[0] == '{' || s[0] == '}') {
 		tokenbuf.push(s);
 	} else if (s[0] == '\"') {
-		if (s[s.size() - 1] == '\"') {
+		if (s[s.size() - 1] == '\"' && s[s.size() - 2] != '\\') {
 			tokenbuf.push(s.substr(1, s.size() - 2));
-		} else if (s[s.size() - 2] == '\"') {
+		} else if (s[s.size() - 2] == '\"' && s[s.size() - 3] != '\\') {
 			tokenbuf.push(s.substr(1, s.size() - 3));
 		} else {
 			string sb;
@@ -78,6 +78,7 @@ struct RawENode {
 	string op;
 	string eclass;
 	vector<string> ch;
+	bool subsumed;
 };
 
 vector<vector<RawENode>> egraph;
@@ -108,7 +109,11 @@ void read_node() {
 	//ignore cost for now
 	get_next_token();
 	assert(get_next_token() == string("subsumed"));
-	assert(get_next_token() == string("false"));
+	if (get_next_token() == string("false")) {
+		e.subsumed = false;
+	} else {
+		e.subsumed = true;
+	}
 	assert(get_next_token()[0] == '}');
 	enodeidmp[e.name] = make_pair(eclassidmp[e.eclass], egraph[eclassidmp[e.eclass]].size());
 	egraph[eclassidmp[e.eclass]].push_back(e);
@@ -251,10 +256,12 @@ void mark_reachable(EClassId root) {
 		q.pop();
 		for (int i = 0; i < (int)egraph[u].size(); ++i) {
 			for (int j = 0; j < (int)egraph[u][i].ch.size(); ++j) {
-				EClassId v = enodeidmp[egraph[u][i].ch[j]].first;
-				if (!reachable[v] && (isExpr(v) || isPrimitiveEClass(v))) {
-					reachable[v] = true;
-					q.push(v);
+				if (!egraph[u][i].subsumed) {
+					EClassId v = enodeidmp[egraph[u][i].ch[j]].first;
+					if (!reachable[v] && (isExpr(v) || isPrimitiveEClass(v))) {
+						reachable[v] = true;
+						q.push(v);
+					}
 				}
 			}
 		}
@@ -295,19 +302,21 @@ void build_simple_egraph() {
 			if (isExpr(i)) {
 				EClassId nid = neweclassidmp[i];
 				for (int j = 0; j < (int)egraph[i].size(); ++j) {
-					ENode en;
-					en.head = egraph[i][j].name + "###" + egraph[i][j].op;
-					en.eclass = nid;
-					for (int k = 0; k < (int)egraph[i][j].ch.size(); ++k) {
-						if (neweclassidmp.count(enodeidmp[egraph[i][j].ch[k]].first)) {
-							en.ch.push_back(neweclassidmp[enodeidmp[egraph[i][j].ch[k]].first]);
+					if (!egraph[i][j].subsumed) {
+						ENode en;
+						en.head = egraph[i][j].name + "###" + egraph[i][j].op;
+						en.eclass = nid;
+						for (int k = 0; k < (int)egraph[i][j].ch.size(); ++k) {
+							if (neweclassidmp.count(enodeidmp[egraph[i][j].ch[k]].first)) {
+								en.ch.push_back(neweclassidmp[enodeidmp[egraph[i][j].ch[k]].first]);
+							}
 						}
+						g.eclasses[nid].enodes.push_back(en);
 					}
-					g.eclasses[nid].enodes.push_back(en);
 				}
 			} else {
 				for (int j = 0; j < (int)egraph[i].size(); ++j) {
-					if (isPrimitiveENode(i, j)) {
+					if (!egraph[i][j].subsumed && isPrimitiveENode(i, j)) {
 						EClassId nid = neweclassidmp[i];
 						ENode en;
 						en.head = egraph[i][j].name + "###" + egraph[i][j].op;

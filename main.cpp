@@ -300,16 +300,16 @@ pair<EGraph, SubEGraphMap> createRegionEGraph(const EGraph &g, const EClassId re
 	return make_pair(gr, mp);
 }
 
-bool checkLinearRegionRec(const EGraph &g, const EClassId root, const Extraction &e) {
-	// cout << "Checking region linearity: " << root << endl;
+bool checkLinearRegionRec(const EGraph &g, const ExtractionENodeId rootid, const Extraction &e) {
+	// cout << "Checking region linearity: " << rootid << endl;
 	// Find statewalk and subregions
 	vector<ExtractionENodeId> statewalk;
 	vector<ExtractionENodeId> subregions;
 	vector<bool> vis(e.size(), false);
 	vector<bool> onpath(e.size(), false);
 	queue<ExtractionENodeId> q;
-	statewalk.push_back(root);
-	onpath[root] = true;
+	statewalk.push_back(rootid);
+	onpath[rootid] = true;
 	for (int i = 0; i < (int)statewalk.size(); ++i) {
 		int u = statewalk[i];
 		int nxt = -1;
@@ -364,7 +364,9 @@ bool linearExtraction(const EGraph &g, const EClassId root, const Extraction &e)
 		return false;
 	}
 	assert(g.eclasses[root].isEffectful);
-	return checkLinearRegionRec(g, root, e);
+	ExtractionENodeId rootid = e.size() - 1;
+	assert(e[rootid].c == root);
+	return checkLinearRegionRec(g, rootid, e);
 }
 
 
@@ -514,12 +516,14 @@ typedef pair<EClassId, ExtractableSet> ExVertex;
 typedef int ExVertexId;
 
 StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENodeId initn, const EClassId root, const vector<vector<int>> &nsubregion) {
-	// print_egraph(g);
-	// cout << initc << ' ' << initn << ' ' << root << endl;
+	//cout << "!!!" << initc << ' ' << initn << ' ' << root << endl;
+	//print_egraph(g);
+	//cout << "---" << endl;
 	vector<vector<pair<EClassId, ENodeId>>> edges(g.eclasses.size());
 	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
 		if (g.eclasses[i].isEffectful) {
 			for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
+				//cout << i << ' ' << j << ' ' << nsubregion[i][j] << endl;
 				for (int k = 0; k < (int)g.eclasses[i].enodes[j].ch.size(); ++k) {
 					if (g.eclasses[g.eclasses[i].enodes[j].ch[k]].isEffectful) {
 						edges[g.eclasses[i].enodes[j].ch[k]].push_back(make_pair(i, j));
@@ -561,7 +565,7 @@ StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENo
 		}
 		ExVertex u = vs[i];
 		ExtractableSet &ues = u.second;
-		for (int j = 0; j < (int)edges[u.first].size() && goal == -1; ++j) {
+		for (int j = 0; j < (int)edges[u.first].size(); ++j) {
 			EClassId vc = edges[u.first][j].first;
 			ENodeId vn = edges[u.first][j].second;
 			if (isExtractable(g, ues, vc, vn)) {
