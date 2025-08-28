@@ -155,7 +155,7 @@ typedef int Cost;
 pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 	vector<Cost> dis(g.eclasses.size(), INT_MAX);
 	vector<ENodeId> pick(g.eclasses.size(), -1);
-	priority_queue<pair<Cost, EClassId>> maxheap;
+	priority_queue<pair<Cost, EClassId> > maxheap;
 	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
 		for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
 			if (g.eclasses[i].enodes[j].ch.size() == 0) {
@@ -168,8 +168,8 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 	}
 
 	// crazy optimization, don't bother
-	vector<vector<pair<EClassId, ENodeId>>> rev_ind(g.eclasses.size());
-	vector<vector<pair<int, Cost>>> counters(g.eclasses.size());
+	vector<vector<pair<EClassId, ENodeId> > > rev_ind(g.eclasses.size());
+	vector<vector<pair<int, Cost> > > counters(g.eclasses.size());
 	for (EClassId i = 0; i < (int)g.eclasses.size(); ++i) {
 		counters[i].resize(g.eclasses[i].enodes.size());
 		for (ENodeId j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
@@ -207,7 +207,7 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 	queue<EClassId> q;
 	inExtraction[root] = true;
 	q.push(root);
-	vector<pair<Cost, EClassId>> ord;
+	vector<pair<Cost, EClassId> > ord;
 	while (q.size() > 0) {
 		EClassId c = q.front();
 		ord.push_back(make_pair(dis[c], c));
@@ -241,7 +241,7 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 struct SubEGraphMap {
 	vector<EClassId> eclassmp;
 	map<EClassId, EClassId> inv;
-	vector<vector<int>> nsubregion;
+	vector<vector<int> > nsubregion;
 };
 
 pair<EGraph, SubEGraphMap> createRegionEGraph(const EGraph &g, const EClassId region_root) {
@@ -370,7 +370,7 @@ bool linearExtraction(const EGraph &g, const EClassId root, const Extraction &e)
 }
 
 
-typedef vector<pair<EClassId, ENodeId>> StateWalk;
+typedef vector<pair<EClassId, ENodeId> > StateWalk;
 
 /*
 StateWalk getStateWalk(const EGraph &g, const EClassId root, const Extraction &e) {
@@ -465,8 +465,8 @@ inline bool isExtractable(const EGraph &g, const ExtractableSet &es, const EClas
 ExtractableSet saturate_pure(const EGraph &g, const ExtractableSet &es) {
 	ExtractableSet ret(es.size(), false);
 	queue<EClassId> q;
-	vector<vector<pair<EClassId, ENodeId>>> edges(g.eclasses.size());
-	vector<vector<int>> counters(g.eclasses.size());
+	vector<vector<pair<EClassId, ENodeId> > > edges(g.eclasses.size());
+	vector<vector<int> > counters(g.eclasses.size());
 	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
 		if (es[i]) {
 			q.push(i);
@@ -515,11 +515,11 @@ ExtractableSet saturate_pure(const EGraph &g, const ExtractableSet &es) {
 typedef pair<EClassId, ExtractableSet> ExVertex;
 typedef int ExVertexId;
 
-StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENodeId initn, const EClassId root, const vector<vector<int>> &nsubregion) {
+StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENodeId initn, const EClassId root, const vector<vector<int> > &nsubregion) {
 	//cout << "!!!" << initc << ' ' << initn << ' ' << root << endl;
 	//print_egraph(g);
 	//cout << "---" << endl;
-	vector<vector<pair<EClassId, ENodeId>>> edges(g.eclasses.size());
+	vector<vector<pair<EClassId, ENodeId> > > edges(g.eclasses.size());
 	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
 		if (g.eclasses[i].isEffectful) {
 			for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
@@ -625,7 +625,7 @@ typedef pair<EClassId, Rank> Vertex;
 vector<EClassId> __gfullv;
 
 pair<bool, StateWalk> FindStateWalk(const EGraph &g, const EClassId initc, const ENodeId initn, const EClassId root, const vector<EClassId> &V) {
-	vector<vector<pair<EClassId, ENodeId>>> edges(g.eclasses.size());
+	vector<vector<pair<EClassId, ENodeId> > > edges(g.eclasses.size());
 	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
 		if (g.eclasses[i].isEffectful) {
 			for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
@@ -638,7 +638,7 @@ pair<bool, StateWalk> FindStateWalk(const EGraph &g, const EClassId initc, const
 		}
 	}
 	// using a map here for sparsity
-	map<Vertex, pair<ExtractableSet, pair<ENodeId, Vertex>>> dis;
+	map<Vertex, pair<ExtractableSet, pair<ENodeId, Vertex> > > dis;
 	queue<Vertex> q;
 	ExtractableSet inites(g.eclasses.size(), false);
 	inites[initc] = true;
@@ -687,8 +687,8 @@ pair<bool, StateWalk> FindStateWalk(const EGraph &g, const EClassId initc, const
 
 vector<EClassId> analyzeStateWalkOrdering(const EGraph &g, const StateWalk &sw) {
 	vector<bool> containsGet(g.eclasses.size(), false), vis(g.eclasses.size(), false);
-	vector<vector<pair<EClassId, ENodeId>>> edges(g.eclasses.size());
-	vector<vector<int>> counters(g.eclasses.size());
+	vector<vector<pair<EClassId, ENodeId> > > edges(g.eclasses.size());
+	vector<vector<int> > counters(g.eclasses.size());
 	queue<EClassId> q;
 	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
 		if (!g.eclasses[i].isEffectful) {

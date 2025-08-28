@@ -81,10 +81,10 @@ struct RawENode {
 	bool subsumed;
 };
 
-vector<vector<RawENode>> egraph;
+vector<vector<RawENode> > egraph;
 
 map<string, EClassId> eclassidmp;
-map<string, pair<EClassId, ENodeId>> enodeidmp;
+map<string, pair<EClassId, ENodeId> > enodeidmp;
 
 void read_node() {
 	RawENode e;
@@ -179,7 +179,7 @@ bool isType(const EClassId i) {
 vector<bool> isEffectfulType;
 
 void propagate_effectful_types() {
-	vector<vector<EClassId>> edges(egraph.size());
+	vector<vector<EClassId> > edges(egraph.size());
 	isEffectfulType = vector<bool>(egraph.size(), false);
 	for (int i = 0; i < (int)egraph.size(); ++i) {
 		if (isType(i)) {
