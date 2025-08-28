@@ -57,7 +57,11 @@ EGraph read_egraph(FILE* ppin) {
 		for (int j = 0; j < m; ++j) {
 			ENode &n = c.enodes[j];
 			char buf[55];
-			fscanf(ppin, "%s", buf);
+			//handle names with spaces
+			fgets(buf, sizeof(buf), ppin);
+			fgets(buf, sizeof(buf), ppin);
+			assert(strlen(buf) > 1);
+			buf[strlen(buf) - 1] = '\0';
 			n.head = buf;
 			n.eclass = i;
 			int l;
