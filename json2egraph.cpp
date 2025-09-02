@@ -188,6 +188,9 @@ void propagate_effectful_types() {
 				if (egraph[i][j].op == "TypeList-ith") {
 					continue;
 				}
+				if (egraph[i][j].op == "TypeListRemoveAt") {
+					continue;
+				}
 				//cout << egraph[i][j].name << endl;
 				//cout << egraph[i][j].op << endl;
 				for (int k = 0; k < (int)egraph[i][j].ch.size(); ++k) {
@@ -360,11 +363,14 @@ int main() {
 	propagate_effectful_types();
 	mark_effectful_exprs();
 	vector<EClassId> roots = findFunctionRoots();
-	assert(roots.size() == 1);
-	mark_reachable(roots[0]);
+	for (int i = 0; i < (int)roots.size(); ++i) {
+		mark_reachable(roots[i]);
+	}
 	build_simple_egraph();
 	print_egraph(g);
-	assert(neweclassidmp.count(roots[0]));
-	printf("%d\n", neweclassidmp[roots[0]]);
+	for (int i = 0; i < (int)roots.size(); ++i) {
+		assert(neweclassidmp.count(roots[i]));
+		printf("%d\n", neweclassidmp[roots[i]]);
+	}
 	return 0;
 }

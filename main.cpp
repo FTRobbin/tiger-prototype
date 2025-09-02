@@ -837,30 +837,36 @@ ExtractionENodeId reconstructExtraction(const EGraph &g, const vector<EClassId> 
 int main() {
 	FILE* ppin = preprocessing();
 	EGraph g = read_egraph(ppin);
-	EClassId program_root;
-	fscanf(ppin, "%d", &program_root);
 	print_egraph(g);
-	vector<RegionId> region_root_id(g.eclasses.size(), -1);
-	vector<EClassId> region_roots;
-	region_roots.push_back(program_root);
-	region_root_id[program_root] = 0;
-	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
-		if (g.eclasses[i].isEffectful) {
-			for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
-				bool subregionroot = false;
-				for (int k = 0; k < (int)g.eclasses[i].enodes[j].ch.size(); ++k) {
-					EClassId v = g.eclasses[i].enodes[j].ch[k];
-					if (g.eclasses[v].isEffectful) {
-						if (subregionroot) {
-							region_root_id[v] = region_roots.size();
-							region_roots.push_back(v);
-						} else {
-							subregionroot = true;
+	EClassId fun_root;
+	while (fscanf(ppin, "%d", &fun_root) != -1) {
+		vector<RegionId> region_root_id(g.eclasses.size(), -1);
+		vector<EClassId> region_roots;
+		region_roots.push_back(fun_root);
+		region_root_id[fun_root] = 0;
+		for (int i = 0; i < (int)g.eclasses.size(); ++i) {
+			if (g.eclasses[i].isEffectful) {
+				for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
+					bool subregionroot = false;
+					for (int k = 0; k < (int)g.eclasses[i].enodes[j].ch.size(); ++k) {
+						EClassId v = g.eclasses[i].enodes[j].ch[k];
+						if (g.eclasses[v].isEffectful) {
+							if (subregionroot) {
+								region_root_id[v] = region_roots.size();
+								region_roots.push_back(v);
+							} else {
+								subregionroot = true;
+							}
 						}
 					}
 				}
 			}
 		}
+		vector<ExtractionENodeId> extracted_roots(region_roots.size(), -1);
+		Extraction e;
+		reconstructExtraction(g, region_roots, region_root_id, extracted_roots, e, region_root_id[fun_root]);
+		print_extraction(g, e);
+		assert(linearExtraction(g, fun_root, e));
 	}
 	/*
 	vector<pair<EGraph, SubEGraphMap>> region_egraphs;
@@ -883,11 +889,6 @@ int main() {
 		print_extraction(gr, region_extractions.back());
 	}
 	*/
-	vector<ExtractionENodeId> extracted_roots(region_roots.size(), -1);
-	Extraction e;
-	reconstructExtraction(g, region_roots, region_root_id, extracted_roots, e, region_root_id[program_root]);
-	print_extraction(g, e);
-	assert(linearExtraction(g, program_root, e));
 /*
 	Extraction e1 = NormalGreedyExtraction(g, root).second;
 	print_extraction(g, e1);
