@@ -300,14 +300,12 @@ struct SubEGraphMap {
 
 pair<EGraph, SubEGraphMap> createRegionEGraph(const EGraph &g, const EClassId region_root) {
 	SubEGraphMap mp;
-	queue<EClassId> q;
-	q.push(region_root);
 	mp.inv[region_root] = 0;
 	mp.eclassmp.push_back(region_root);
 	mp.nsubregion.push_back(vector<int>(g.eclasses[region_root].enodes.size(), 0));
-	while (q.size() > 0) {
-		EClassId u = q.front();
-		q.pop();
+	// First BFS: only follow non-subregion child edges to get connected effectful eclasses
+	for (int _ = 0; _ < (int)mp.eclassmp.size(); ++_) {
+		EClassId u = mp.eclassmp[_];
 		assert(mp.nsubregion[mp.inv[u]].size() == g.eclasses[u].enodes.size());
 		for (int i = 0; i < (int)g.eclasses[u].enodes.size(); ++i) {
 			bool subregionchild = false;
@@ -319,16 +317,32 @@ pair<EGraph, SubEGraphMap> createRegionEGraph(const EGraph &g, const EClassId re
 						continue;
 					}
 					subregionchild = true;
-				}
-				if (!mp.inv.count(v)) {
-					mp.inv[v] = mp.eclassmp.size();
-					mp.eclassmp.push_back(v);
-					mp.nsubregion.push_back(vector<int>(g.eclasses[v].enodes.size(), 0));
-					q.push(v);
+					if (!mp.inv.count(v)) {
+						mp.inv[v] = mp.eclassmp.size();
+						mp.eclassmp.push_back(v);
+						mp.nsubregion.push_back(vector<int>(g.eclasses[v].enodes.size(), 0));
+					}
 				}
 			}
 		}
 	}
+	// Second BFS: only look at pure children
+	for (int _ = 0; _ < (int)mp.eclassmp.size(); ++_) {
+		EClassId u = mp.eclassmp[_];
+		for (int i = 0; i < (int)g.eclasses[u].enodes.size(); ++i) {
+			for (int j = 0; j < (int)g.eclasses[u].enodes[i].ch.size(); ++j) {
+				EClassId v = g.eclasses[u].enodes[i].ch[j];
+				if (!g.eclasses[v].isEffectful) {
+					if (!mp.inv.count(v)) {
+						mp.inv[v] = mp.eclassmp.size();
+						mp.eclassmp.push_back(v);
+						mp.nsubregion.push_back(vector<int>(g.eclasses[v].enodes.size(), 0));
+					}
+				}
+			}
+		}
+	}
+	// Add all the enodes
 	EGraph gr;
 	for (int i = 0; i < (int)mp.eclassmp.size(); ++i) {
 		EClass c;
@@ -690,6 +704,8 @@ StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENo
 	if (goal == -1) {
 		cerr << "!!! Unextractable region !!!" << endl;
 		print_egraph(g);
+		cout << root << endl;
+		cout << initc << endl;
 	}
 	assert(goal != -1);
 	ExVertexId cur = goal;
@@ -844,17 +860,28 @@ vector<EClassId> analyzeStateWalkOrdering(const EGraph &g, const StateWalk &sw) 
 }
 
 pair<EClassId, ENodeId> findArg(const EGraph &g) {
+	pair<EClassId, ENodeId> ret = make_pair(-1, -1);
+	int narg = 0;
 	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
 		if (g.eclasses[i].isEffectful) {
 			for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
 				if (g.eclasses[i].enodes[j].ch.size() == 0) {
-					return make_pair(i, j);
+					if (++narg == 1) {
+						ret = make_pair(i, j);
+					}
+					break;
 				}
 			}
 		}
 	}
-	//print_egraph(g);
-	assert(false);
+	if (narg == 0) {
+		cerr << "Error: Failed to find arg!" << endl;
+		//print_egraph(g);
+		assert(false);
+	} else if (narg > 1) {
+		cerr << "Warning: Found mulitple arg in different eclasses!!" << endl;
+	}
+	return ret;
 }
 
 EClassId pick_next_variable_heuristics(const vector<EClassId> &v) {
