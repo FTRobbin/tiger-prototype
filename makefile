@@ -1,3 +1,5 @@
+.PHONY: all main clean json2egraph egraph2json
+
 CPPFLAGS = -O2 -Wno-unused-result
 
 json2egraph:
@@ -6,7 +8,10 @@ json2egraph:
 main:
 	g++ $(CPPFLAGS) main.cpp -o main
 
+egraph2json:
+	g++ $(CPPFLAGS) egraph2json.cpp -o egraph2json
+
 clean: 
-	rm json2egraph main
+	rm -f json2egraph main
 
 all: json2egraph main

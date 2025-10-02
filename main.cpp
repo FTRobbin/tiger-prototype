@@ -1,4 +1,5 @@
 #include<map>
+#include<set>
 #include<queue>
 #include<vector>
 #include<cstdio>
@@ -45,18 +46,19 @@ struct EGraph {
 
 EGraph read_egraph(FILE* ppin) {
 	EGraph g;
-	int n;
+	int n, cnt = 0;
 	fscanf(ppin, "%d", &n);
 	g.eclasses.resize(n);
 	for (int i = 0; i < n; ++i) {
 		int f, m;
 		EClass &c = g.eclasses[i];
 		fscanf(ppin, "%d%d", &f, &m);
+		cnt += m;
 		c.isEffectful = f != 0;	
 		c.enodes.resize(m);
 		for (int j = 0; j < m; ++j) {
 			ENode &n = c.enodes[j];
-			char buf[55];
+			char buf[505];
 			//handle names with spaces
 			fgets(buf, sizeof(buf), ppin);
 			fgets(buf, sizeof(buf), ppin);
@@ -73,6 +75,7 @@ EGraph read_egraph(FILE* ppin) {
 			//scanf("%d", &n.cost);
 		}
 	}
+	cerr << " # eclasses: " << n << "  # enodes : " << cnt << endl;
 	return g;
 }
 
@@ -96,6 +99,31 @@ void print_egraph(const EGraph &g) {
 	}
 }
 
+void debugprint_egraph(const EGraph &g) {
+	int n = g.eclasses.size(), cnt = 0;
+	for (int i = 0; i < n; ++i) {
+		cnt += g.eclasses[i].enodes.size();
+	}
+	printf("# eclasses: %d\n# enodes: %d\n", n, cnt);
+	for (int i = 0; i < n; ++i) {
+		printf("# eclass %d\n", i);
+		const EClass &c = g.eclasses[i];
+		int f = c.isEffectful ? 1 : 0,
+			m = c.enodes.size();
+		printf("%d %d\n", f, m);
+		for (int j = 0; j < m; ++j) {
+			const ENode &n = c.enodes[j];
+			int l = n.ch.size();
+			printf("%s\n%d%c", n.head.c_str(), l, l == 0 ? '\n' : ' ');
+			for (int k = 0; k < l; ++k) {
+				printf("%s%d%c", g.eclasses[n.ch[k]].isEffectful ? "!" : " ", n.ch[k], k == l - 1 ? '\n' : ' ');
+			}
+			//printf("%d\n", n.cost);
+		}
+		printf("\n");
+	}
+}
+
 typedef int ENodeId;
 
 typedef int ExtractionENodeId;
@@ -110,28 +138,36 @@ typedef vector<ExtractionENode> Extraction;
 
 bool validExtraction(const EGraph &g, const EClassId root, const Extraction &e) {
 	if (e.size() == 0 || e.back().c != root) { // root
+		cerr << "Error: The first element of the extraction must be the root." << endl;
 		return false;
 	}
 	for (int i = (int)e.size() - 1; i >= 0; --i) {
 		const ExtractionENode &n = e[i];
 		if (n.c < 0 || n.c >= g.eclasses.size()) {
+			cerr << "Error: Extraction referring to an eclass outside of bounds." << endl;
 			return false;
 		}
 		if (n.n < 0 || n.n >= g.eclasses[n.c].enodes.size()) {
+			cerr << "Error: Extraction referring to an enode outside of bounds." << endl;
 			return false;
 		}
 		if (n.ch.size() != g.eclasses[n.c].enodes[n.n].ch.size()) {
+			cerr << "Error: Extraction referring to a wrong number of children." << endl;
 			return false;
 		}
 		for (int j = 0; j < (int)n.ch.size(); ++j) {
 			ExtractionENodeId ch = n.ch[j];
 			if (ch < 0 || ch >= e.size()) { // child present
+				cerr << "Error: Extraction referring to an index outside of bounds." << endl;
+				cerr << "Found: " << ch << endl;
 				return false;
 			}
 			if (e[ch].c != g.eclasses[n.c].enodes[n.n].ch[j]) {
+				cerr << "Error: Extraction referring to a child of wrong eclass." << endl;
 				return false;
 			}
 			if (ch >= i) { // acyclicity
+				cerr << "Error: Extraction may contain a loop." << endl;
 				return false;
 			}
 		}
@@ -150,18 +186,31 @@ void print_extraction(const EGraph &g, const Extraction &e) {
 	}
 }
 
-typedef int Cost;
+typedef set<EClassId> SCost;
+
+SCost& operator += (SCost &a, const SCost &b) {
+	for (SCost::iterator it = b.begin(); it != b.end(); ++it) {
+		a.insert(*it);
+	}
+	return a;
+}
+
+SCost singleton(EClassId i) {
+	SCost ret;
+	ret.insert(i);
+	return ret;
+}
 
 pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
-	vector<Cost> dis(g.eclasses.size(), INT_MAX);
+	vector<SCost> dis(g.eclasses.size());
 	vector<ENodeId> pick(g.eclasses.size(), -1);
-	priority_queue<pair<Cost, EClassId> > maxheap;
+	priority_queue<pair<int, EClassId> > maxheap;
 	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
 		for (int j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
 			if (g.eclasses[i].enodes[j].ch.size() == 0) {
-				dis[i] = 1;
+				dis[i] = singleton(i);
 				pick[i] = j;
-				maxheap.push(make_pair(-dis[i], i));
+				maxheap.push(make_pair(-dis[i].size(), i));
 				break;
 			}
 		}
@@ -169,11 +218,11 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 
 	// crazy optimization, don't bother
 	vector<vector<pair<EClassId, ENodeId> > > rev_ind(g.eclasses.size());
-	vector<vector<pair<int, Cost> > > counters(g.eclasses.size());
+	vector<vector<pair<int, SCost> > > counters(g.eclasses.size());
 	for (EClassId i = 0; i < (int)g.eclasses.size(); ++i) {
 		counters[i].resize(g.eclasses[i].enodes.size());
 		for (ENodeId j = 0; j < (int)g.eclasses[i].enodes.size(); ++j) {
-			counters[i][j] = make_pair(g.eclasses[i].enodes[j].ch.size(), 1);
+			counters[i][j] = make_pair(g.eclasses[i].enodes[j].ch.size(), singleton(i));
 			for (int k = 0; k < (int)g.eclasses[i].enodes[j].ch.size(); ++k) {
 				rev_ind[g.eclasses[i].enodes[j].ch[k]].push_back(make_pair(i, j));
 			}
@@ -181,25 +230,26 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 	}
 
 	while (maxheap.size() > 0) {
-		Cost d = -maxheap.top().first;
+		int d = -maxheap.top().first;
 		EClassId i = maxheap.top().second;
 		maxheap.pop();
-		if (d == dis[i]) {
+		if (d == dis[i].size()) {
+			//cerr << i << ' ' << d << endl;
 			for (int j = 0; j < (int)rev_ind[i].size(); ++j) {
 				EClassId vc = rev_ind[i][j].first;
 				ENodeId vn = rev_ind[i][j].second;
 				--counters[vc][vn].first;
 				counters[vc][vn].second += dis[i];
-				if (counters[vc][vn].first == 0 && counters[vc][vn].second < dis[vc]) {
+				if (counters[vc][vn].first == 0 && (dis[vc].size() == 0 || (counters[vc][vn].second.size() < dis[vc].size()))) {
 					dis[vc] = counters[vc][vn].second;
 					pick[vc] = vn;
-					maxheap.push(make_pair(-dis[vc], vc));
+					maxheap.push(make_pair(-dis[vc].size(), vc));
 				}
 			}
 		}
 	}
 
-	if (dis[root] == INT_MAX) {
+	if (dis[root].size() == 0) {
 		return make_pair(false, Extraction());
 	}
 
@@ -207,10 +257,10 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 	queue<EClassId> q;
 	inExtraction[root] = true;
 	q.push(root);
-	vector<pair<Cost, EClassId> > ord;
+	vector<pair<int, EClassId> > ord;
 	while (q.size() > 0) {
 		EClassId c = q.front();
-		ord.push_back(make_pair(dis[c], c));
+		ord.push_back(make_pair(dis[c].size(), c));
 		q.pop();
 		for (int i = 0; i < (int)g.eclasses[c].enodes[pick[c]].ch.size(); ++i) {
 			EClassId chc = g.eclasses[c].enodes[pick[c]].ch[i];
@@ -229,6 +279,8 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 		n.c = ord[i].second;
 		n.n = pick[n.c];
 		for (int j = 0; j < (int)g.eclasses[n.c].enodes[n.n].ch.size(); ++j) {
+			//cerr << dis[n.c].size() << ' ' << dis[g.eclasses[n.c].enodes[n.n].ch[j]].size() << endl;
+			assert(dis[n.c].size() > dis[g.eclasses[n.c].enodes[n.n].ch[j]].size());
 			n.ch.push_back(idmap[g.eclasses[n.c].enodes[n.n].ch[j]]);
 		}
 		e.push_back(n);
@@ -237,6 +289,8 @@ pair<bool, Extraction> NormalGreedyExtraction(const EGraph &g, EClassId root) {
 	assert(validExtraction(g, root, e));
 	return make_pair(true, e);
 }
+
+typedef int Cost;
 
 struct SubEGraphMap {
 	vector<EClassId> eclassmp;
@@ -452,6 +506,8 @@ pair<bool, Extraction> regionExtractionWithStateWalk(const EGraph &g, const ECla
 
 typedef vector<bool> ExtractableSet;
 
+typedef vector<unsigned long long> CompressedSet;
+
 inline bool isExtractable(const EGraph &g, const ExtractableSet &es, const EClassId c, const ENodeId n) {
 	for (int i = 0; i < (int)g.eclasses[c].enodes[n].ch.size(); ++i) {
 		EClassId chc = g.eclasses[c].enodes[n].ch[i];
@@ -461,6 +517,17 @@ inline bool isExtractable(const EGraph &g, const ExtractableSet &es, const EClas
 	}
 	return true;
 }
+
+CompressedSet compress(const EGraph &g, const ExtractableSet &es, const EClassId &frontier) {
+	// TODO: add liveness analysis and 
+	CompressedSet ret((g.eclasses.size() + 63) / 64, 0) ;
+	for (int i = 0; i < (int)g.eclasses.size(); ++i) {
+		if (!g.eclasses[i].isEffectful && es[i]) {
+			ret[i / 64] |= 1ull << (i % 64);
+		}
+	}
+	return ret;
+} 
 
 ExtractableSet saturate_pure(const EGraph &g, const ExtractableSet &es) {
 	ExtractableSet ret(es.size(), false);
@@ -513,6 +580,7 @@ ExtractableSet saturate_pure(const EGraph &g, const ExtractableSet &es) {
 }
 
 typedef pair<EClassId, ExtractableSet> ExVertex;
+typedef pair<EClassId, CompressedSet> IndVertex;
 typedef int ExVertexId;
 
 StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENodeId initn, const EClassId root, const vector<vector<int> > &nsubregion) {
@@ -533,7 +601,8 @@ StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENo
 		}
 	}
 	vector<ExVertex> vs;
-	map<ExVertex, ExVertexId> vsmap;
+	map<IndVertex, ExVertexId> vsmap;
+	map<EClassId, int> wlcnt;
 	vector<pair<Cost, Cost> > dis;
 	vector<pair<ENodeId, ExVertexId> > pa;
 
@@ -541,7 +610,9 @@ StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENo
 	inites[initc] = true;
 	inites = saturate_pure(g, inites);
 	ExVertex initv = make_pair(initc, inites);
-	vsmap[initv] = vs.size();
+	IndVertex initvi = make_pair(initc, compress(g, inites, initc));
+	vsmap[initvi] = vs.size();
+	++wlcnt[initc];
 	vs.push_back(initv);
 	dis.push_back(make_pair(0, 1));
 	pa.push_back(make_pair(initn, -1));
@@ -549,6 +620,8 @@ StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENo
 	priority_queue<pair<pair<Cost, Cost>, ExVertexId> > maxheap;
 	maxheap.push(make_pair(make_pair(-dis[0].first, -dis[0].second), 0));
 
+	bool nonWLwarning = false;
+	int cnt = 0;
 	ExVertexId goal = -1;
 	while (maxheap.size() > 0) {
 		pair<Cost, Cost> c = maxheap.top().first;
@@ -565,6 +638,15 @@ StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENo
 		}
 		ExVertex u = vs[i];
 		ExtractableSet &ues = u.second;
+		++cnt;
+		if (cnt % 100000 == 0) {
+			cerr << "CNT : " << cnt << " HEAP : " << maxheap.size() << ' ' << " DIS : " << dis.size() << " TOTAL : " << g.eclasses.size() << endl;
+			cerr << c.first << ' ' << c.second << ' ' << endl;
+			for (int k = 0; k < (int)ues.size(); ++k) {
+				cerr << (ues[k] ? "1" : "0");
+			}
+			cerr << endl;
+		}
 		for (int j = 0; j < (int)edges[u.first].size(); ++j) {
 			EClassId vc = edges[u.first][j].first;
 			ENodeId vn = edges[u.first][j].second;
@@ -575,17 +657,24 @@ StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENo
 					ves = saturate_pure(g, ves);
 				}
 				ExVertex v = make_pair(vc, ves);
+				IndVertex vi = make_pair(vc, compress(g, ves, vc));
 				pair<Cost, Cost> nc = make_pair(c.first + nsubregion[vc][vn], c.second + 1);
 				int vid;
-				if (!vsmap.count(v)) {
+				if (!vsmap.count(vi)) {
 					vid = vs.size();
-					vsmap[v] = vid;
+					vsmap[vi] = vid;
+					if (!nonWLwarning && ++wlcnt[vc] > 1) {
+						cerr << "Weak Linearity Violation Found!" << endl;
+						//print_egraph(g);
+						nonWLwarning = true;
+						//assert(false);
+					}
 					vs.push_back(v);
 					dis.push_back(nc);
 					pa.push_back(make_pair(vn, i));
 					maxheap.push(make_pair(make_pair(-dis[vid].first, -dis[vid].second), vid));
 				} else {
-					vid = vsmap[v];
+					vid = vsmap[vi];
 					if (dis[vid] > nc) {
 						dis[vid] = nc;
 						pa[vid] = make_pair(vn, i);
@@ -597,6 +686,10 @@ StateWalk UnguidedFindStateWalk(const EGraph &g, const EClassId initc, const ENo
 				}
 			}
 		}
+	}
+	if (goal == -1) {
+		cerr << "!!! Unextractable region !!!" << endl;
+		print_egraph(g);
 	}
 	assert(goal != -1);
 	ExVertexId cur = goal;
@@ -760,6 +853,7 @@ pair<EClassId, ENodeId> findArg(const EGraph &g) {
 			}
 		}
 	}
+	//print_egraph(g);
 	assert(false);
 }
 
@@ -780,10 +874,11 @@ ExtractionENodeId reconstructExtraction(const EGraph &g, const vector<EClassId> 
 		return extracted_roots[cur_region];
 	}
 	EClassId region_root = region_roots[cur_region];
-	// cout << "Region root : " << region_root << endl;
+	//cout << cur_region << " Region root : " << region_root << endl;
 	pair<EGraph, SubEGraphMap> res = createRegionEGraph(g, region_root);
 	EGraph &gr = res.first;
 	SubEGraphMap &rmap = res.second;
+	cerr << "Region root : " << region_root << "  Region egraph size : " << g.eclasses.size() << " Top region egraph size : " << gr.eclasses.size() << endl;
 	pair<EClassId, ENodeId> arg = findArg(gr);
 	EClassId argc = arg.first;
 	ENodeId argn = arg.second;
@@ -837,9 +932,15 @@ ExtractionENodeId reconstructExtraction(const EGraph &g, const vector<EClassId> 
 int main() {
 	FILE* ppin = preprocessing();
 	EGraph g = read_egraph(ppin);
-	print_egraph(g);
+	//print_egraph(g);
 	EClassId fun_root;
 	while (fscanf(ppin, "%d", &fun_root) != -1) {
+		if (!g.eclasses[fun_root].isEffectful) {
+			//cerr << "Skipping pure function : " << fun_root << endl;
+			//TODO extract pure function
+			continue;
+		}
+		cerr << "Function root : " << fun_root << endl;
 		vector<RegionId> region_root_id(g.eclasses.size(), -1);
 		vector<EClassId> region_roots;
 		region_roots.push_back(fun_root);
@@ -852,8 +953,10 @@ int main() {
 						EClassId v = g.eclasses[i].enodes[j].ch[k];
 						if (g.eclasses[v].isEffectful) {
 							if (subregionroot) {
-								region_root_id[v] = region_roots.size();
-								region_roots.push_back(v);
+								if (region_root_id[v] == -1) {
+									region_root_id[v] = region_roots.size();
+									region_roots.push_back(v);
+								}
 							} else {
 								subregionroot = true;
 							}
