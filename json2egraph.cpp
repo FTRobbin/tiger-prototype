@@ -290,6 +290,90 @@ struct EGraph {
 EGraph g;
 map<EClassId, EClassId> neweclassidmp;
 
+const char* EXTRACTABLEOP[] = {
+	"Int",
+	"Bool",
+	"Float",
+    // Leaves
+    "Const",
+    "Arg",
+	// int, float, string
+    "true",
+	"false",
+	"()",
+    // Lists
+    "Empty",
+	"Single",
+	"Concat",
+	"Nil",
+	"Cons",
+    "Get",
+    // Algebra
+    "Abs",
+	"Bitand",
+	"Neg",
+	"Add",
+	"PtrAdd",
+	"Sub",
+	"And",
+	"Or",
+	"Not",
+	"Shl",
+    "Shr",
+    "FAdd",
+	"FSub",
+	"Fmax",
+	"Fmin",
+    "Mul",
+    "FMul",
+    "Div",
+	"FDiv",
+    // Comparisons
+    "Eq",
+	"LessThan",
+	"GreaterThan",
+	"LessEq",
+	"GreaterEq",
+    "Select",
+	"Smax",
+	"Smin",
+    "FEq",
+    "FLessThan",
+	"FGreaterThan",
+	"FLessEq",
+	"FGreaterEq",
+    // Effects
+    "Print",
+	"Write",
+	"Load",
+    "Alloc",
+	"Free",
+    "Call",
+	// Control
+    "Program",
+	"Function",
+    // custom logic for DoWhile will multiply the body by the LoopNumItersGuess
+    "DoWhile",
+    "If",
+	"Switch",
+    // Schema
+    "Bop",
+	"Uop",
+	"Top"
+};
+
+bool isExtractableOP (const string &op) {
+	if (op[0] == '\\' || op[0] == '.' || op[0] == '-' || ('0' <= op[0] && op[0] <= '9')) {
+		return true;
+	}
+	for (int i = 0; i < sizeof(EXTRACTABLEOP) / sizeof(char*); ++i) {
+		if (op == EXTRACTABLEOP[i]) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void build_simple_egraph() {
 	g.eclasses.clear();
 	neweclassidmp.clear();
@@ -305,7 +389,7 @@ void build_simple_egraph() {
 			if (isExpr(i)) {
 				EClassId nid = neweclassidmp[i];
 				for (int j = 0; j < (int)egraph[i].size(); ++j) {
-					if (!egraph[i][j].subsumed) {
+					if (!egraph[i][j].subsumed  && isExtractableOP(egraph[i][j].op)) {
 						ENode en;
 						en.head = egraph[i][j].name + "###" + egraph[i][j].op;
 						en.eclass = nid;
@@ -319,7 +403,7 @@ void build_simple_egraph() {
 				}
 			} else {
 				for (int j = 0; j < (int)egraph[i].size(); ++j) {
-					if (!egraph[i][j].subsumed && isPrimitiveENode(i, j)) {
+					if (!egraph[i][j].subsumed && isPrimitiveENode(i, j) && isExtractableOP(egraph[i][j].op)) {
 						EClassId nid = neweclassidmp[i];
 						ENode en;
 						en.head = egraph[i][j].name + "###" + egraph[i][j].op;
